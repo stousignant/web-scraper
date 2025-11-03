@@ -33,51 +33,51 @@ export function getFirstParagraphFromHTML(html: string): string {
 }
 
 export function getURLsFromHTML(html: string, baseURL: string): string[] {
+    const urls: string[] = [];
     try {
         const dom = new JSDOM(html);
         const doc = dom.window.document;
         const anchorElements = doc.querySelectorAll("a[href]");
-        const urls: string[] = [];
 
         anchorElements.forEach(anchor => {
             const href = anchor.getAttribute("href");
-            if (href) {
-                try {
-                    const url = new URL(href, baseURL);
-                    urls.push(url.href);
-                } catch {
-                    // Ignore invalid URLs
-                }
+            if (!href) return;
+
+            try {
+                const absoluteUrl = new URL(href, baseURL).toString();
+                urls.push(absoluteUrl);
+            } catch (err) {
+                console.error(`invalid href '${href}':`, err);
             }
         });
-
-        return urls;
-    } catch {
-        return [];
+    } catch (err) {
+        console.error("failed to parse HTML:", err);
     }
+
+    return urls;
 }
 
 export function getImagesFromHTML(html: string, baseURL: string): string[] {
+    const imgUrls: string[] = [];
     try {
         const dom = new JSDOM(html);
         const doc = dom.window.document;
         const imgElements = doc.querySelectorAll("img[src]");
-        const imgUrls: string[] = [];
 
         imgElements.forEach(img => {
             const src = img.getAttribute("src");
-            if (src) {
-                try {
-                    const url = new URL(src, baseURL);
-                    imgUrls.push(url.href);
-                } catch {
-                    // Ignore invalid URLs
-                }
+            if (!src) return;
+
+            try {
+                const absoluteUrl = new URL(src, baseURL).toString();
+                imgUrls.push(absoluteUrl);
+            } catch (err) {
+                console.error(`invalid src '${src}':`, err);
             }
         });
-
-        return imgUrls;
-    } catch {
-        return [];
+    } catch (err) {
+        console.error("failed to parse HTML:", err);
     }
+
+    return imgUrls;
 }
