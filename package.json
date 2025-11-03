@@ -4,14 +4,20 @@
     "main": "index.js",
     "type": "module",
     "scripts": {
-        "start": "tsx ./src/index.ts"
+        "start": "tsx ./src/index.ts",
+        "test": "vitest run"
     },
     "author": "",
     "license": "ISC",
     "description": "",
     "devDependencies": {
+        "@types/jsdom": "^27.0.0",
         "@types/node": "^24.9.1",
         "tsx": "^4.20.6",
-        "typescript": "^5.9.3"
+        "typescript": "^5.9.3",
+        "vitest": "^4.0.4"
+    },
+    "dependencies": {
+        "jsdom": "^27.0.1"
     }
 }
