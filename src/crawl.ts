@@ -104,3 +104,35 @@ export function extractPageData(html: string, pageURL: string): ExtractedPageDat
         image_urls: getImagesFromHTML(html, pageURL),
     };
 }
+
+export async function getHTML(url: string) {
+    console.log(`Crawling ${url}`);
+
+    let response;
+    try {
+        response = await fetch(url, {
+            method: 'GET',
+            headers: { 'User-Agent': 'BootCrawler/1.0' }
+        });
+    }
+    catch (err) {
+        throw new Error(`Network error fetching ${url}: ${err}`);
+    }
+
+    if (response.status >= 400 && response.status < 500) {
+        console.log(`Client error fetching ${url}: ${response.status} ${response.statusText}`);
+        return;
+    }
+
+    if (!response.ok) {
+        console.log(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+        return;
+    }
+
+    if (response.headers.get("content-type")?.includes("text/html") === false) {
+        console.log(`Non-HTML content at ${url}: ${response.headers.get("content-type")}`);
+        return;
+    }
+
+    console.log(await response.text());
+}
