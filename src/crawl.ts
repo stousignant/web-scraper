@@ -4,7 +4,11 @@ import { JSDOM } from "jsdom";
 export function normalizeUrl(url: string): string {
     url = url.replace(/\/$/, '').toLowerCase();
     const urlObject = new URL(url);
-    return `${urlObject.hostname}${urlObject.pathname}`;
+    let fullPath = `${urlObject.hostname}${urlObject.pathname}`;
+    if (fullPath.slice(-1) === "/") {
+        fullPath = fullPath.slice(0, -1);
+    }
+    return fullPath;
 }
 
 export function getH1FromHTML(html: string): string {
@@ -80,4 +84,23 @@ export function getImagesFromHTML(html: string, baseURL: string): string[] {
     }
 
     return imgUrls;
+}
+
+export type ExtractedPageData = {
+    url: string;
+    h1: string;
+    first_paragraph: string;
+    outgoing_links: string[];
+    image_urls: string[];
+}
+
+
+export function extractPageData(html: string, pageURL: string): ExtractedPageData {
+    return {
+        url: normalizeUrl(pageURL),
+        h1: getH1FromHTML(html),
+        first_paragraph: getFirstParagraphFromHTML(html),
+        outgoing_links: getURLsFromHTML(html, pageURL),
+        image_urls: getImagesFromHTML(html, pageURL),
+    };
 }
