@@ -3,7 +3,7 @@ import pLimit from 'p-limit';
 
 class ConcurrentCrawler {
     private baseUrl: string;
-    private pages: Record<string, number>;
+    private pages: Record<string, ExtractedPageData>;
     private limit: <T>(fn: () => Promise<T>) => Promise<T>;
     private maxPages: number;
     private visited = new Set<string>;
@@ -18,7 +18,7 @@ class ConcurrentCrawler {
         this.maxPages = Math.max(1, maxPages);
     }
 
-    public async crawl(): Promise<Record<string, number>> {
+    public async crawl(): Promise<Record<string, ExtractedPageData>> {
         const rootTask = this.crawlPage(this.baseUrl);
         this.allTasks.add(rootTask);
         try {
@@ -64,10 +64,11 @@ class ConcurrentCrawler {
             return;
         }
 
-        const nextUrls = getUrlsFromHtml(validHtml, this.baseUrl);
+        const data = extractPageData(validHtml, currentUrl);
+        this.pages[normalizedCurrentUrl] = data;
 
         const crawlPromises: Promise<void>[] = [];
-        for (const nextUrl of nextUrls) {
+        for (const nextUrl of data.outgoing_links) {
             if (this.shouldStop) {
                 break;
             }
@@ -84,12 +85,6 @@ class ConcurrentCrawler {
     private addPageVisit(normalizedUrl: string): boolean {
         if (this.shouldStop) {
             return false;
-        }
-
-        if (this.pages[normalizedUrl]) {
-            this.pages[normalizedUrl]++;
-        } else {
-            this.pages[normalizedUrl] = 1;
         }
 
         if (this.visited.has(normalizedUrl)) {
@@ -110,8 +105,6 @@ class ConcurrentCrawler {
     private async getHtml(url: string): Promise<string | null> {
         const { signal } = this.abortController;
         return await this.limit(async () => {
-            console.log(`Crawling ${url}`);
-
             let response;
             try {
                 response = await fetch(url, {
@@ -136,7 +129,6 @@ class ConcurrentCrawler {
 
             const contentType = response.headers.get("content-type");
             if (!contentType || !contentType.includes("text/html")) {
-                console.log(`Non-HTML content at ${url}: ${contentType}`);
                 return null;
             }
 
@@ -149,7 +141,7 @@ export async function crawlSiteAsync(
     baseUrl: string,
     maxConcurrency: number = 5,
     maxPages: number = 100,
-): Promise<Record<string, number>> {
+): Promise<Record<string, ExtractedPageData>> {
     const crawler = new ConcurrentCrawler(baseUrl, maxConcurrency, maxPages);
     return await crawler.crawl();
 }
@@ -164,7 +156,7 @@ export type ExtractedPageData = {
 
 export function extractPageData(html: string, pageUrl: string): ExtractedPageData {
     return {
-        url: normalizeUrl(pageUrl),
+        url: pageUrl,
         h1: getH1FromHtml(html),
         first_paragraph: getFirstParagraphFromHtml(html),
         outgoing_links: getUrlsFromHtml(html, pageUrl),
@@ -187,7 +179,7 @@ export function getH1FromHtml(html: string): string {
         const dom = new JSDOM(html);
         const doc = dom.window.document;
         const h1Element = doc.querySelector("h1");
-        return h1Element?.textContent ?? "";
+        return (h1Element?.textContent ?? "").trim();
     } catch {
         return "";
     }
@@ -201,7 +193,7 @@ export function getFirstParagraphFromHtml(html: string): string {
         // Find <main> tag for better results
         const mainElement = doc.querySelector("main");
         const pElement = mainElement?.querySelector("p") ?? doc.querySelector("p");
-        return pElement?.textContent ?? "";
+        return (pElement?.textContent ?? "").trim();
     } catch {
         return "";
     }

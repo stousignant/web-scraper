@@ -1,4 +1,5 @@
 import { crawlSiteAsync } from './crawl';
+import { writeCsvReport } from './report';
 
 
 async function main() {
@@ -29,7 +30,7 @@ async function main() {
     console.log(`Crawler starting at : ${baseUrl} (concurrency ${maxConcurrency}, maxPages ${maxPages})...`);
 
     const pages = await crawlSiteAsync(baseUrl, maxConcurrency, maxPages);
-    console.log(pages);
+    writeCsvReport(pages, "report.csv");
 
     process.exit(0);
 }
