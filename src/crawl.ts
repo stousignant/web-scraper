@@ -1,77 +1,102 @@
 import { JSDOM } from "jsdom";
+import pLimit from 'p-limit';
 
-export async function crawlPage(
-    baseUrl: string,
-    currentUrl: string = baseUrl,
-    pages: Record<string, number> = {},
-) {
-    const currentUrlObj = new URL(currentUrl);
-    const baseUrlObj = new URL(baseUrl);
-    const isSameDomain: boolean = currentUrlObj.hostname === baseUrlObj.hostname
-    if (!isSameDomain) {
-        return pages;
+class ConcurrentCrawler {
+    private baseUrl: string;
+    private pages: Record<string, number>;
+    private limit: <T>(fn: () => Promise<T>) => Promise<T>;
+
+    constructor(baseUrl: string, maxConcurrency: number = 5) {
+        this.baseUrl = baseUrl;
+        this.pages = {};
+        this.limit = pLimit(maxConcurrency);
     }
 
-    let normalizedCurrentUrl: string = normalizeUrl(currentUrl);
-
-    if (pages[normalizedCurrentUrl]) {
-        pages[normalizedCurrentUrl]++;
-        return pages;
+    public async crawl(): Promise<Record<string, number>> {
+        await this.crawlPage(this.baseUrl);
+        return this.pages;
     }
 
-    pages[normalizedCurrentUrl] = 1;
-
-    let validHtml = "";
-    try {
-        const html = await getHtml(currentUrl);
-        if (!html) {
-            return pages;
+    private async crawlPage(currentUrl: string): Promise<void> {
+        const currentUrlObj = new URL(currentUrl);
+        const baseUrlObj = new URL(this.baseUrl);
+        const isSameDomain: boolean = currentUrlObj.hostname === baseUrlObj.hostname
+        if (!isSameDomain) {
+            return;
         }
-        validHtml = html;
-    } catch (err) {
-        console.log(`${(err as Error).message}`);
-        return pages;
+
+        let normalizedCurrentUrl: string = normalizeUrl(currentUrl);
+
+        const isNewPage = this.addPageVisit(normalizedCurrentUrl);
+        if (!isNewPage) {
+            return;
+        }
+
+        let validHtml: string | null = null;
+        try {
+            validHtml = await this.getHtml(currentUrl);
+            if (!validHtml) {
+                return;
+            }
+        } catch (err) {
+            console.log(`${(err as Error).message}`);
+            return;
+        }
+
+        const nextUrls = getURLsFromHtml(validHtml, this.baseUrl);
+        const crawlPromises = nextUrls.map(nextUrl => this.crawlPage(nextUrl));
+        await Promise.all(crawlPromises);
     }
 
-    const nextUrls = getURLsFromHtml(validHtml, baseUrl);
-    for (const nextUrl of nextUrls) {
-        pages = await crawlPage(baseUrl, nextUrl, pages);
+    private addPageVisit(normalizedUrl: string): boolean {
+        if (this.pages[normalizedUrl]) {
+            this.pages[normalizedUrl]++;
+            return false;
+        } else {
+            this.pages[normalizedUrl] = 1;
+            return true;
+        }
     }
 
-    return pages;
-}
+    private async getHtml(url: string): Promise<string | null> {
+        return await this.limit(async () => {
+            console.log(`Crawling ${url}`);
 
-export async function getHtml(url: string) {
-    console.log(`Crawling ${url}`);
+            let response;
+            try {
+                response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'User-Agent': 'BootCrawler/1.0' }
+                });
+            }
+            catch (err) {
+                throw new Error(`Network error fetching ${url}: ${(err as Error).message}`);
+            }
 
-    let response;
-    try {
-        response = await fetch(url, {
-            method: 'GET',
-            headers: { 'User-Agent': 'BootCrawler/1.0' }
+            if (response.status >= 400 && response.status < 500) {
+                console.log(`Client error fetching ${url}: ${response.status} ${response.statusText}`);
+                return null;
+            }
+
+            if (!response.ok) {
+                console.log(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+                return null;
+            }
+
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("text/html")) {
+                console.log(`Non-HTML content at ${url}: ${contentType}`);
+                return null;
+            }
+
+            return response.text();
         });
     }
-    catch (err) {
-        throw new Error(`Network error fetching ${url}: ${(err as Error).message}`);
-    }
+}
 
-    if (response.status >= 400 && response.status < 500) {
-        console.log(`Client error fetching ${url}: ${response.status} ${response.statusText}`);
-        return;
-    }
-
-    if (!response.ok) {
-        console.log(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
-        return;
-    }
-
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("text/html")) {
-        console.log(`Non-HTML content at ${url}: ${contentType}`);
-        return;
-    }
-
-    return response.text();
+export async function crawlSiteAsync(baseUrl: string): Promise<Record<string, number>> {
+    let crawler = new ConcurrentCrawler(baseUrl);
+    return await crawler.crawl();
 }
 
 export type ExtractedPageData = {
