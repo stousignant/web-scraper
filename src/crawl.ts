@@ -116,7 +116,7 @@ export async function getHTML(url: string) {
         });
     }
     catch (err) {
-        throw new Error(`Network error fetching ${url}: ${err}`);
+        throw new Error(`Network error fetching ${url}: ${(err as Error).message}`);
     }
 
     if (response.status >= 400 && response.status < 500) {
@@ -129,10 +129,11 @@ export async function getHTML(url: string) {
         return;
     }
 
-    if (response.headers.get("content-type")?.includes("text/html") === false) {
-        console.log(`Non-HTML content at ${url}: ${response.headers.get("content-type")}`);
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("text/html")) {
+        console.log(`Non-HTML content at ${url}: ${contentType}`);
         return;
     }
 
-    console.log(await response.text());
+    return response.text();
 }

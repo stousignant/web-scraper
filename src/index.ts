@@ -3,18 +3,20 @@ import { getHTML } from './crawl';
 
 async function main() {
     if (process.argv.length < 3) {
-        console.error("Please provide at least one URL as an argument.");
+        console.error("No website URL provided.");
         process.exit(1);
     }
 
     if (process.argv.length > 3) {
-        console.error("Please provide only one URL at a time.");
+        console.error("Too many arguments provided.");
         process.exit(1);
     }
 
-    const url = process.argv[2];
-    console.log(`Crawler starting at : ${url}`);
-    await getHTML(url);
+    const baseUrl = process.argv[2];
+    console.log(`Crawler starting at : ${baseUrl}`);
+
+    const html = await getHTML(baseUrl);
+    console.log(html);
 
     process.exit(0);
 }
