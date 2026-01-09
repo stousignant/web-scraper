@@ -5,19 +5,36 @@ class ConcurrentCrawler {
     private baseUrl: string;
     private pages: Record<string, number>;
     private limit: <T>(fn: () => Promise<T>) => Promise<T>;
+    private maxPages: number;
+    private visited = new Set<string>;
+    private shouldStop = false;
+    private allTasks = new Set<Promise<void>>();
+    private abortController = new AbortController();
 
-    constructor(baseUrl: string, maxConcurrency: number = 5) {
+    constructor(baseUrl: string, maxConcurrency: number = 5, maxPages: number = 100) {
         this.baseUrl = baseUrl;
         this.pages = {};
         this.limit = pLimit(maxConcurrency);
+        this.maxPages = Math.max(1, maxPages);
     }
 
     public async crawl(): Promise<Record<string, number>> {
-        await this.crawlPage(this.baseUrl);
+        const rootTask = this.crawlPage(this.baseUrl);
+        this.allTasks.add(rootTask);
+        try {
+            await rootTask;
+        } finally {
+            this.allTasks.delete(rootTask);
+        }
+        await Promise.allSettled(Array.from(this.allTasks));
         return this.pages;
     }
 
     private async crawlPage(currentUrl: string): Promise<void> {
+        if (this.shouldStop) {
+            return;
+        }
+
         const currentUrlObj = new URL(currentUrl);
         const baseUrlObj = new URL(this.baseUrl);
         const isSameDomain: boolean = currentUrlObj.hostname === baseUrlObj.hostname
@@ -43,22 +60,55 @@ class ConcurrentCrawler {
             return;
         }
 
-        const nextUrls = getURLsFromHtml(validHtml, this.baseUrl);
-        const crawlPromises = nextUrls.map(nextUrl => this.crawlPage(nextUrl));
+        if (this.shouldStop) {
+            return;
+        }
+
+        const nextUrls = getUrlsFromHtml(validHtml, this.baseUrl);
+
+        const crawlPromises: Promise<void>[] = [];
+        for (const nextUrl of nextUrls) {
+            if (this.shouldStop) {
+                break;
+            }
+
+            const task = this.crawlPage(nextUrl);
+            this.allTasks.add(task);
+            task.finally(() => this.allTasks.delete(task));
+            crawlPromises.push(task);
+        }
+
         await Promise.all(crawlPromises);
     }
 
     private addPageVisit(normalizedUrl: string): boolean {
+        if (this.shouldStop) {
+            return false;
+        }
+
         if (this.pages[normalizedUrl]) {
             this.pages[normalizedUrl]++;
-            return false;
         } else {
             this.pages[normalizedUrl] = 1;
-            return true;
         }
+
+        if (this.visited.has(normalizedUrl)) {
+            return false;
+        }
+
+        if (this.visited.size >= this.maxPages) {
+            this.shouldStop = true;
+            console.log("Reached maximum number of pages to crawl.");
+            this.abortController.abort();
+            return false;
+        }
+
+        this.visited.add(normalizedUrl);
+        return true;
     }
 
     private async getHtml(url: string): Promise<string | null> {
+        const { signal } = this.abortController;
         return await this.limit(async () => {
             console.log(`Crawling ${url}`);
 
@@ -66,7 +116,8 @@ class ConcurrentCrawler {
             try {
                 response = await fetch(url, {
                     method: 'GET',
-                    headers: { 'User-Agent': 'BootCrawler/1.0' }
+                    headers: { 'User-Agent': 'BootCrawler/1.0' },
+                    signal,
                 });
             }
             catch (err) {
@@ -94,8 +145,12 @@ class ConcurrentCrawler {
     }
 }
 
-export async function crawlSiteAsync(baseUrl: string): Promise<Record<string, number>> {
-    let crawler = new ConcurrentCrawler(baseUrl);
+export async function crawlSiteAsync(
+    baseUrl: string,
+    maxConcurrency: number = 5,
+    maxPages: number = 100,
+): Promise<Record<string, number>> {
+    const crawler = new ConcurrentCrawler(baseUrl, maxConcurrency, maxPages);
     return await crawler.crawl();
 }
 
@@ -112,7 +167,7 @@ export function extractPageData(html: string, pageUrl: string): ExtractedPageDat
         url: normalizeUrl(pageUrl),
         h1: getH1FromHtml(html),
         first_paragraph: getFirstParagraphFromHtml(html),
-        outgoing_links: getURLsFromHtml(html, pageUrl),
+        outgoing_links: getUrlsFromHtml(html, pageUrl),
         image_urls: getImagesFromHtml(html, pageUrl),
     };
 }
@@ -152,7 +207,7 @@ export function getFirstParagraphFromHtml(html: string): string {
     }
 }
 
-export function getURLsFromHtml(html: string, baseURL: string): string[] {
+export function getUrlsFromHtml(html: string, baseURL: string): string[] {
     const urls: string[] = [];
     try {
         const dom = new JSDOM(html);
